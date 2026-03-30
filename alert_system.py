@@ -1,100 +1,123 @@
-# alert_system.py
+# unified_alert_system.py
+
 import time
 import os
 import cv2
-# from telegram_alert import TelegramAlert
-import paho.mqtt.client as mqtt
 import json
+import paho.mqtt.client as mqtt
+
+# ================= CONFIG =================
+MQTT_TOPIC_ALERT  = "school/alert"
+MQTT_TOPIC_STATUS = "school/status"
+SNAPSHOT_DIR      = "/home/pi5/.node-red/public/image"
+# =========================================
 
 mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.connect("localhost", 1883, 60)
 mqtt_client.loop_start()
 
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except ImportError:
-    GPIO_AVAILABLE = False
-    print("⚠️  RPi.GPIO not available - buzzer disabled")
+os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
-# ============================================
-# 🔐 TELEGRAM CREDENTIALS - UPDATE THESE!
-# ============================================
-# BOT_TOKEN = "…………………………………………………………"
-# CHAT_ID   = "…………………………………………………………"
-
-SNAPSHOT_DIR = "/home/pi/antibullying/alerts"
 
 class AlertSystem:
-    def __init__(self, buzzer_pin=17, cooldown=30):
-        self.cooldown         = cooldown
-        self.last_alert_time  = 0
-        # self.telegram         = TelegramAlert(BOT_TOKEN, CHAT_ID)
+    def __init__(self, cooldown=10):
+        self.cooldown = cooldown
+        self.last_alert_time = 0
 
-        # Setup buzzer
-        if GPIO_AVAILABLE:
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(buzzer_pin, GPIO.OUT)
-            self.buzzer_pin = buzzer_pin
+    # ================= STATUS =================
+    def startup_notify(self, frame=None, camera="cam_1"):
+        filename = None
 
-        os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-
-    # def startup_notify(self):
-    #     """Send Telegram message when system starts"""
-    #     print("📲  Sending startup notification...")
-    #     self.telegram.send_message(
-    #         "🟢 *Anti-Bullying System Started*\n"
-    #         f"🕐 Time: `{time.strftime('%Y-%m-%d %H:%M:%S')}`\n"
-    #         "📷 Camera is now monitoring."
-    #     )
-
-    # def shutdown_notify(self):
-    #     """Send Telegram message when system stops"""
-    #     print("📲  Sending shutdown notification...")
-    #     self.telegram.send_message(
-    #         "🔴 *Anti-Bullying System Stopped*\n"
-    #         f"🕐 Time: `{time.strftime('%Y-%m-%d %H:%M:%S')}`"
-    #     )
-
-    def trigger_alert(self, alert_messages, frame=None, confidence=0.0, camera="cam_1"):
-        """Main alert trigger — buzzer + snapshot + Telegram"""
-        current_time = time.time()
-        if current_time - self.last_alert_time < self.cooldown:
-            return  # still in cooldown, skip
-
-        self.last_alert_time = current_time
-        print("\n🚨 ALERT TRIGGERED!")
-        for msg in alert_messages:
-            print(f"   {msg}")
-
-        # 1️⃣ Sound buzzer
-        self._sound_buzzer()
-
-        # 2️⃣ Save snapshot locally        
-        image_path = None
         if frame is not None:
-            timestamp     = time.strftime("%Y%m%d_%H%M%S")
-            image_path    = f"{SNAPSHOT_DIR}/alert_{timestamp}.jpg"
-            cv2.imwrite(image_path, frame)
-            print(f"   📸 Snapshot saved: {image_path}")
-        
-        # ❗ Skip if no image
-        if image_path is None:
-            print("⚠️ No image captured, skipping alert send")
-            return
+            filename = f"startup_{int(time.time())}.jpg"
+            path = f"{SNAPSHOT_DIR}/{filename}"
+            cv2.imwrite(path, frame)
 
-        # 3️⃣ Send MQTT
         data = {
-            "event": " | ".join(alert_messages),
-            "confidence": confidence,
+            "event": "SYSTEM_START",
+            "message": "🟢 Camera started monitoring",
             "camera": camera,
-            "image": image_path
+            "image": f"/image/{filename}" if filename else None,
+            "time": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        mqtt_client.publish("school/alert", json.dumps(data))
+        mqtt_client.publish(MQTT_TOPIC_STATUS, json.dumps(data))
 
-    def _sound_buzzer(self, duration=2):
-        if GPIO_AVAILABLE:
-            GPIO.output(self.buzzer_pin, GPIO.HIGH)
-            time.sleep(duration)
-            GPIO.output(self.buzzer_pin, GPIO.LOW)
+    def shutdown_notify(self, frame=None, camera="cam_1"):
+        filename = None
+
+        if frame is not None:
+            filename = f"shutdown_{int(time.time())}.jpg"
+            path = f"{SNAPSHOT_DIR}/{filename}"
+            cv2.imwrite(path, frame)
+
+        data = {
+            "event": "SYSTEM_STOP",
+            "message": "🔴 Camera stopped monitoring",
+            "camera": camera,
+            "image": f"/image/{filename}" if filename else None,
+            "time": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        mqtt_client.publish(MQTT_TOPIC_STATUS, json.dumps(data))
+
+    # ================= ALERT =================
+    def trigger_alert(self, frame, confidence=0.9, camera="cam_1"):
+        now = time.time()
+        if now - self.last_alert_time < self.cooldown:
+            return
+
+        self.last_alert_time = now
+
+        filename = f"alert_{int(time.time())}.jpg"
+        path = f"{SNAPSHOT_DIR}/{filename}"
+
+        cv2.imwrite(path, frame)
+
+        data = {
+            "event": "ALERT",
+            "message": "🚨 Bullying Detected!",
+            "confidence": confidence,
+            "camera": camera,
+            "image": f"/image/{filename}",
+            "time": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        mqtt_client.publish(MQTT_TOPIC_ALERT, json.dumps(data))
+
+        print("🚨 Alert sent via MQTT")
+
+# ================= MAIN LOOP =================
+
+cap = cv2.VideoCapture(0)
+alert = AlertSystem()
+
+ret, frame = cap.read()
+if ret:
+    alert.startup_notify(frame)
+
+try:
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            continue
+
+        # 🔥 Replace with real AI later
+        bullying_detected = True
+        confidence = 0.91
+
+        if bullying_detected:
+            alert.trigger_alert(frame, confidence)
+
+        time.sleep(2)
+
+except KeyboardInterrupt:
+    print("Stopping system...")
+
+    ret, frame = cap.read()
+    if ret:
+        alert.shutdown_notify(frame)
+
+cap.release()
+mqtt_client.loop_stop()
+mqtt_client.disconnect()
