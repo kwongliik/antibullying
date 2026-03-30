@@ -1,4 +1,6 @@
-# unified_alert_system.py
+# alert_system.py
+# alert system using node-red for dashboard and telegram notifications. 
+# This version focuses on MQTT communication and image handling, without Telegram integration.
 
 import time
 import os
