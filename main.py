@@ -52,44 +52,48 @@ def main():
 
     print("✅  All modules ready.")
     alert_system.startup_notify()   # 📲 Telegram: system started
-    print("🎥  Monitoring started. Press 'q' to quit.\n")
+    print("🎥  Monitoring started. Press 'q' or Ctrl+C to quit.\n")
 
     frame_count = 0
 
-    while True:
-        frame        = camera.get_frame()
-        all_alerts   = []
-        person_count = 0
+    try:
+        while True:
+            frame        = camera.get_frame()
+            all_alerts   = []
+            person_count = 0
 
-        # ── Run detections every 2nd frame ───────────────────
-        if frame_count % 2 == 0:
-            frame, pose_alerts              = pose.detect(frame)
-            frame, crowd_alerts, person_count = crowd.detect(frame)
-            frame, _                        = emotion.detect_faces(frame)
+            # ── Run detections every 2nd frame ───────────────────
+            if frame_count % 2 == 0:
+                frame, pose_alerts = pose.detect(frame)
+                frame, crowd_alerts, person_count = crowd.detect(frame)
+                frame, emotion_alerts = emotion.detect_faces(frame)
 
-            all_alerts.extend(pose_alerts)
-            all_alerts.extend(crowd_alerts)
-            print(f"Detections: {len(all_alerts)}")
-            
-            # ── Trigger if threshold met ─────────────────────
-            if len(all_alerts) >= ALERT_THRESHOLD:
-                alert_system.trigger_alert(all_alerts, frame)
-                # buzzer + snapshot + Telegram all handled inside ↑
+                all_alerts.extend(pose_alerts)
+                all_alerts.extend(crowd_alerts)
+                all_alerts.extend(emotion_alerts)
+                print(f"Detections: {len(all_alerts)}")
+                
+                # ── Trigger if threshold met ─────────────────────
+                if len(all_alerts) >= ALERT_THRESHOLD:
+                    alert_system.trigger_alert(all_alerts, frame)
 
-        # ── Draw overlay and show frame ───────────────────────
-        frame = draw_overlay(frame, all_alerts, person_count)
-        cv2.imshow("Anti-Bullying Monitor", frame)
-        frame_count += 1
+            # ── Draw overlay and show frame ───────────────────────
+            frame = draw_overlay(frame, all_alerts, person_count)
+            cv2.imshow("Anti-Bullying Monitor", frame)
+            frame_count += 1
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-    # ── Shutdown ─────────────────────────────────────────────
-    print("\n🔴 Shutting down...")
-    alert_system.shutdown_notify()  # 📲 Telegram: system stopped
-    camera.release()
-    cv2.destroyAllWindows()
-    print("✅  Done.")
+    except KeyboardInterrupt:
+        print("\n🔴 Keyboard interrupt received. Shutting down...")
+
+    finally:
+        # ── Clean shutdown ─────────────────────────────
+        alert_system.shutdown_notify()  # 📲 Telegram: system stopped
+        camera.release()
+        cv2.destroyAllWindows()
+        print("✅  Done.")
 
 if __name__ == "__main__":
     main()
