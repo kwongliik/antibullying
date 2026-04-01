@@ -69,7 +69,8 @@ def main():
 
             all_alerts.extend(pose_alerts)
             all_alerts.extend(crowd_alerts)
-
+            print(f"Detections: {len(all_alerts)}")
+            
             # ── Trigger if threshold met ─────────────────────
             if len(all_alerts) >= ALERT_THRESHOLD:
                 alert_system.trigger_alert(all_alerts, frame)
