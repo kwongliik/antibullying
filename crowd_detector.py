@@ -4,6 +4,8 @@ import os
 from ultralytics import YOLO
 import cv2
 import numpy as np
+import time
+TEST_MODE = True
 
 
 class CrowdDetector:
@@ -17,8 +19,12 @@ class CrowdDetector:
         self.model = YOLO(model_path)
 
         # Detection parameters
-        self.conf_threshold = 0.65
-        self.min_box_area = 5000   # ignore tiny detections
+        #self.conf_threshold = 0.65
+        #self.min_box_area = 5000   # ignore tiny detections
+        self.conf_threshold = 0.4
+        self.min_box_area = 1500   # ignore tiny detections
+        self.last_alert_time = 0
+        self.alert_cooldown = 5   # seconds
 
 
     def detect(self, frame):
@@ -33,8 +39,9 @@ class CrowdDetector:
         alerts = []
         boxes = []
         person_count = 0
+        max_conf = 0
 
-        for r in results:
+        for r in results:            
 
             if r.boxes is None:
                 continue
@@ -52,6 +59,9 @@ class CrowdDetector:
                 if area < self.min_box_area:
                     continue
 
+                if conf > max_conf:
+                    max_conf = conf
+
                 boxes.append((x1, y1, x2, y2))
                 person_count += 1
 
@@ -67,21 +77,28 @@ class CrowdDetector:
                             (0,255,0),
                             2)
 
+        if TEST_MODE:
+            if person_count >= 1:
+                current_time = time.time()
+                if current_time - self.last_alert_time > self.alert_cooldown:
+                    alerts.append(f"⚠️ TEST ALERT: {person_count} person detected")
+                    self.last_alert_time = current_time
         # Improved clustering detection
-        if person_count >= 3:
+        else:
+            if person_count >= 3:
 
-            centers = [
-                ((x1+x2)//2, (y1+y2)//2)
-                for (x1,y1,x2,y2) in boxes
-            ]
+                centers = [
+                    ((x1+x2)//2, (y1+y2)//2)
+                    for (x1,y1,x2,y2) in boxes
+                ]
 
-            cluster_pairs = self._count_close_pairs(centers)
+                cluster_pairs = self._count_close_pairs(centers)
 
-            # Require multiple close pairs to reduce false alarms
-            if cluster_pairs >= 3:
-                alerts.append(f"⚠️ {person_count} people tightly grouped")
+                # Require multiple close pairs to reduce false alarms
+                if cluster_pairs >= 3:
+                    alerts.append(f"⚠️ {person_count} people tightly grouped")
 
-        return frame, alerts, person_count
+        return frame, alerts, person_count, max_conf
 
 
     def _count_close_pairs(self, centers, threshold=150):

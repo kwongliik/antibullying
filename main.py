@@ -10,7 +10,8 @@ from alert_system import AlertSystem   # ← handles everything
 # ============================================
 # ⚙️ SETTINGS
 # ============================================
-ALERT_THRESHOLD = 2    # detections needed to trigger alert
+#ALERT_THRESHOLD = 2    # detections needed to trigger alert
+ALERT_THRESHOLD = 1   # detections needed to trigger alert
 
 def draw_overlay(frame, all_alerts, person_count):
     h, w = frame.shape[:2]
@@ -65,7 +66,7 @@ def main():
             # ── Run detections every 2nd frame ───────────────────
             if frame_count % 2 == 0:
                 frame, pose_alerts = pose.detect(frame)
-                frame, crowd_alerts, person_count = crowd.detect(frame)
+                frame, crowd_alerts, person_count, confidence = crowd.detect(frame)
                 frame, emotion_alerts = emotion.detect_faces(frame)
 
                 all_alerts.extend(pose_alerts)
@@ -75,7 +76,7 @@ def main():
                 
                 # ── Trigger if threshold met ─────────────────────
                 if len(all_alerts) >= ALERT_THRESHOLD:
-                    alert_system.trigger_alert(all_alerts, frame)
+                    alert_system.trigger_alert(all_alerts, frame, confidence)
 
             # ── Draw overlay and show frame ───────────────────────
             frame = draw_overlay(frame, all_alerts, person_count)
