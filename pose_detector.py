@@ -24,7 +24,7 @@ class PoseDetector:
         self.right_wrist_history = deque(maxlen=8)
 
         # Motion threshold (higher = less sensitive)
-        self.motion_threshold = 0.12
+        self.motion_threshold = 0.05
 
         # Require repeated aggressive frames
         self.aggressive_counter = 0
@@ -38,47 +38,59 @@ class PoseDetector:
 
         alerts = []
 
-        if results.pose_landmarks:
+        if not results.pose_landmarks:
+            self.left_wrist_history.clear()
+            self.right_wrist_history.clear()
+            self.aggressive_counter = 0
+            return frame, []        
 
-            landmarks = results.pose_landmarks.landmark
+        landmarks = results.pose_landmarks.landmark
 
-            self.mp_draw.draw_landmarks(
-                frame,
-                results.pose_landmarks,
-                self.mp_pose.POSE_CONNECTIONS
-            )
+        # Visibility check
+        def is_valid(lm):
+            return lm.visibility > 0.6  # tune 0.5–0.7
 
-            # Key landmarks
-            left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST]
-            right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST]
-            nose = landmarks[self.mp_pose.PoseLandmark.NOSE]
+        left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST]
+        right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST]
+        nose = landmarks[self.mp_pose.PoseLandmark.NOSE]
 
-            left_pos = np.array([left_wrist.x, left_wrist.y])
-            right_pos = np.array([right_wrist.x, right_wrist.y])
-            head_pos = np.array([nose.x, nose.y])
+        valid_wrist = is_valid(left_wrist) or is_valid(right_wrist)
+        valid_head = is_valid(nose)
 
-            # Save history
+        if not (valid_wrist and valid_head):
+            self.left_wrist_history.clear()
+            self.right_wrist_history.clear()
+            self.aggressive_counter = 0
+            return frame, []
+
+        left_pos = np.array([left_wrist.x, left_wrist.y])
+        right_pos = np.array([right_wrist.x, right_wrist.y])
+        head_pos = np.array([nose.x, nose.y])
+
+        # Save history
+        if is_valid(left_wrist):
             self.left_wrist_history.append(left_pos)
+        if is_valid(right_wrist):
             self.right_wrist_history.append(right_pos)
 
-            aggressive_motion = False
+        aggressive_motion = False
 
-            # Detect punch-like motion
-            if self._is_aggressive_motion(self.left_wrist_history, head_pos):
-                aggressive_motion = True
+        # Detect punch-like motion
+        if self._is_aggressive_motion(self.left_wrist_history, head_pos):
+            aggressive_motion = True
 
-            if self._is_aggressive_motion(self.right_wrist_history, head_pos):
-                aggressive_motion = True
+        if self._is_aggressive_motion(self.right_wrist_history, head_pos):
+            aggressive_motion = True
 
-            # Temporal filtering
-            if aggressive_motion:
-                self.aggressive_counter += 1
-            else:
-                self.aggressive_counter = max(0, self.aggressive_counter - 1)
+        # Temporal filtering
+        if aggressive_motion:
+            self.aggressive_counter += 1
+        else:
+            self.aggressive_counter = max(0, self.aggressive_counter - 1)
 
-            if self.aggressive_counter >= self.aggressive_frames_required:
-                alerts.append("🚨 Possible aggressive action detected")
-                self.aggressive_counter = 0
+        if self.aggressive_counter >= self.aggressive_frames_required:
+            alerts.append("🚨 Possible aggressive action detected")
+            self.aggressive_counter = 0
 
         return frame, alerts
 
@@ -99,7 +111,7 @@ class PoseDetector:
             total_motion += speed
 
             # Detect forward punching direction
-            if movement[0] > 0.03 or movement[1] < -0.03:
+            if speed > 0.02:
                 forward_motion += 1
 
         avg_motion = total_motion / (len(history) - 1)

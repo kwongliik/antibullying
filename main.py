@@ -1,4 +1,3 @@
-# Anti-Bullying Detection System
 # main.py
 import cv2
 import time
@@ -11,8 +10,6 @@ from alert_system import AlertSystem   # ← handles everything
 # ============================================
 # ⚙️ SETTINGS
 # ============================================
-#ALERT_THRESHOLD = 2    # detections needed to trigger alert
-ALERT_THRESHOLD = 1   # detections needed to trigger alert
 
 def draw_overlay(frame, all_alerts, person_count):
     h, w = frame.shape[:2]
@@ -57,6 +54,9 @@ def main():
     print("🎥  Monitoring started. Press 'q' or Ctrl+C to quit.\n")
 
     frame_count = 0
+    confidence = 0.0
+    alert_counter = 0
+    ALERT_CONFIRM_FRAMES = 3
 
     try:
         while True:
@@ -68,21 +68,57 @@ def main():
             if frame_count % 2 == 0:
                 frame, pose_alerts = pose.detect(frame)
                 frame, crowd_alerts, person_count, confidence = crowd.detect(frame)
-                frame, emotion_alerts = emotion.detect_faces(frame)
+                frame, emotion_alerts = emotion.detect_faces(frame)                  
+                
+                if person_count == 0:
+                    pose_alerts = []
+                    emotion_alerts = []
+                    crowd_alerts = []
+                
+                pose_flag = len(pose_alerts) > 0
+                crowd_flag = len(crowd_alerts) > 0
+                emotion_flag = len(emotion_alerts) > 0
 
+                # Only trust detections if at least 1 person detected
+                valid_detection = (person_count > 0 and confidence > 0.5)
+
+                # Default
+                trigger = False
+
+                if valid_detection:
+                # Strong case: physical aggression
+                    if pose_flag:
+                        trigger = True
+
+                    # Medium case: crowd + negative emotion
+                    elif crowd_flag and emotion_flag and person_count >= 2:
+                        trigger = True               
+
+                all_alerts = []
                 all_alerts.extend(pose_alerts)
                 all_alerts.extend(crowd_alerts)
                 all_alerts.extend(emotion_alerts)
-                print(f"Detections: {len(all_alerts)}")
-                
-                # ── Trigger if threshold met ─────────────────────
-                if len(all_alerts) >= ALERT_THRESHOLD:
-                    alert_system.trigger_alert(all_alerts, frame, confidence)
+                print(f"""
+                Pose: {pose_alerts}
+                Crowd: {crowd_alerts}
+                Emotion: {emotion_alerts}
+                Persons: {person_count}, Confidence: {confidence:.2f}
+                Trigger: {trigger}
+                """)
 
             # ── Draw overlay and show frame ───────────────────────
             frame = draw_overlay(frame, all_alerts, person_count)
             cv2.imshow("Anti-Bullying Monitor", frame)
             frame_count += 1
+
+            if trigger:
+                alert_counter += 1
+            else:
+                alert_counter = max(0, alert_counter - 1)
+
+            if alert_counter >= ALERT_CONFIRM_FRAMES:
+                alert_system.trigger_alert(all_alerts, frame, confidence)
+                alert_counter = 0            
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -95,7 +131,7 @@ def main():
         alert_system.shutdown_notify()  # 📲 Telegram: system stopped
         camera.release()
         cv2.destroyAllWindows()
-        print("✅  Done.")
+        print("✅  Done.")    
 
 if __name__ == "__main__":
     main()

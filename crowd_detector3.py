@@ -19,17 +19,14 @@ class CrowdDetector:
         self.model = YOLO(model_path)
 
         # Detection parameters
-        self.conf_threshold = 0.5
+        self.conf_threshold = 0.65
         self.min_box_area = 5000   # ignore tiny detections
+        # self.conf_threshold = 0.4
+        # self.min_box_area = 1500   # ignore tiny detections
         self.last_alert_time = 0
         self.alert_cooldown = 5   # seconds
-        self.proximity_threshold = 120
-        self.required_frames = 5
-        self.proximity_counter = 0
         self.prev_centers = None
-        self.movement_threshold = 30
-        self.no_person_counter = 0
-
+        self.movement_threshold = 20   # pixels
 
     def detect(self, frame):
 
@@ -89,37 +86,18 @@ class CrowdDetector:
                     self.last_alert_time = current_time
         # Improved clustering detection
         else:
-            if person_count >= 2:
+            if person_count >= 3:
 
                 centers = [
                     ((x1+x2)//2, (y1+y2)//2)
                     for (x1,y1,x2,y2) in boxes
                 ]
 
-                close_pairs = self._count_close_pairs(centers, self.proximity_threshold)
-                movement = self._compute_movement(centers)
+                cluster_pairs = self._count_close_pairs(centers)
 
-                if close_pairs >= 1:
-
-                    if movement > self.movement_threshold:
-                        self.proximity_counter += 1
-                    else:
-                        self.proximity_counter = 0
-                else:
-                    self.proximity_counter = 0
-
-                if self.proximity_counter >= self.required_frames:
-
-                    current_time = time.time()
-
-                    if current_time - self.last_alert_time > self.alert_cooldown:
-                        alerts.append("⚠️ Possible aggressive interaction detected")
-                        self.last_alert_time = current_time
-                        self.proximity_counter = 0
-            else:
-                # ✅ IMPORTANT: reset when less than 2 people
-                self.proximity_counter = 0
-                self.prev_centers = None
+                # Require multiple close pairs to reduce false alarms
+                if cluster_pairs >= 3:
+                    alerts.append(f"⚠️ {person_count} people tightly grouped")
 
         return frame, alerts, person_count, max_conf
 
@@ -139,7 +117,7 @@ class CrowdDetector:
                     pair_count += 1
 
         return pair_count
-
+    
     def _compute_movement(self, centers):
         if self.prev_centers is None or len(centers) != len(self.prev_centers):
             self.prev_centers = centers

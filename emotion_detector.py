@@ -4,10 +4,12 @@ import tflite_runtime.interpreter as tflite
 import os
 from collections import deque, Counter
 
-
+# EmotionDetector class for real-time emotion detection using TFLite model
 class EmotionDetector:
 
     def __init__(self, model_path=None):
+
+        self.frame_count = 0
 
         # Face detector
         self.face_cascade = cv2.CascadeClassifier(
@@ -29,7 +31,7 @@ class EmotionDetector:
 
         # Detection parameters
         self.confidence_threshold = 0.65
-        self.min_face_size = 90
+        self.min_face_size = 60
 
         # Temporal smoothing buffer
         self.history_size = 10
@@ -37,6 +39,12 @@ class EmotionDetector:
 
 
     def detect_faces(self, frame):
+        alerts = []
+
+        # ✅ Frame skipping (run every 3 frames)
+        self.frame_count += 1
+        if self.frame_count % 3 != 0:
+            return frame, []
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -45,9 +53,14 @@ class EmotionDetector:
             scaleFactor=1.2,
             minNeighbors=6,
             minSize=(self.min_face_size, self.min_face_size)
-        )
+        )        
 
-        alerts = []
+        if len(faces) == 0:
+            self.emotion_history.clear()
+            return frame, []
+
+        faces = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)
+        faces = faces[:1]
 
         for (x, y, w, h) in faces:
 
@@ -55,7 +68,7 @@ class EmotionDetector:
 
             # ===== Reject very dark faces =====
             brightness = np.mean(face_img)
-            if brightness < 40:
+            if brightness < 30:
                 continue
 
             # ===== Reject distorted faces =====
@@ -98,7 +111,7 @@ class EmotionDetector:
             emotion_label = self.labels[emotion_idx]
 
             # Add to history buffer
-            self.emotion_history.append(emotion_label)
+            self.emotion_history.append(emotion_label)            
 
             # Temporal smoothing
             smoothed_emotion = Counter(self.emotion_history).most_common(1)[0][0]
@@ -119,7 +132,7 @@ class EmotionDetector:
             )
 
             # Require persistence before alert
-            if negative_count >= 6 and confidence > 0.75:
-                alerts.append(f"Negative emotion detected: {smoothed_emotion}")
+            if negative_count >= 5 and confidence > 0.7:
+                alerts.append(f"Negative emotion detected: {smoothed_emotion}")            
 
         return frame, alerts
