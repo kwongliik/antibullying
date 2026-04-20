@@ -13,7 +13,7 @@ class CameraModule:
 
     def get_frame(self):
         frame = self.picam2.capture_array()
-        return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        return frame
 
     def release(self):
         self.picam2.stop()
