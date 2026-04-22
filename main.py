@@ -56,7 +56,7 @@ def main():
     frame_count = 0
     confidence = 0.0
     alert_counter = 0
-    ALERT_CONFIRM_FRAMES = 3
+    ALERT_CONFIRM_FRAMES = 3 # initially set to 3 for more robustness, but can be reduced for demo/testing purposes
 
     try:
         while True:
@@ -79,33 +79,47 @@ def main():
                 crowd_flag = len(crowd_alerts) > 0
                 emotion_flag = len(emotion_alerts) > 0
 
+                all_alerts = pose_alerts + crowd_alerts + emotion_alerts
+
                 # Only trust detections if at least 1 person detected
-                valid_detection = (person_count > 0 and confidence > 0.5)
+                valid_detection = (person_count > 0 and confidence > 0.65)
 
                 # Default
                 trigger = False
 
-                if valid_detection:
+                # if valid_detection:
                 # Strong case: physical aggression
-                    if pose_flag:
-                        trigger = True
+                    # if pose_flag:
+                    #     trigger = True
 
-                    # Medium case: crowd + negative emotion
-                    elif crowd_flag and emotion_flag and person_count >= 2:
-                        trigger = True               
+                    # # Medium case: crowd + negative emotion
+                    # elif crowd_flag and emotion_flag and person_count >= 2:
+                    #     trigger = True            
 
-                all_alerts = []
-                all_alerts.extend(pose_alerts)
-                all_alerts.extend(crowd_alerts)
-                all_alerts.extend(emotion_alerts)
-                print(f"""
-                Pose: {pose_alerts}
-                Crowd: {crowd_alerts}
-                Emotion: {emotion_alerts}
-                Persons: {person_count}, Confidence: {confidence:.2f}
-                Trigger: {trigger}
-                """)
+                DEMO_MODE = False
 
+                threshold = 2 if DEMO_MODE else 4 # in demo mode, we want to see alerts more easily, so we lower the threshold
+
+                score = 0
+
+                if pose_flag:
+                    score += 2
+
+                if emotion_flag:
+                    score += 1
+
+                if crowd_flag:
+                    score += 1
+
+                if person_count >= 2:
+                    score += 1
+
+                # validity control
+                if not DEMO_MODE and not valid_detection:
+                    score = 0
+
+                trigger = score >= threshold
+                
             # ── Draw overlay and show frame ───────────────────────
             frame = draw_overlay(frame, all_alerts, person_count)
             cv2.imshow("Anti-Bullying Monitor", frame)
@@ -114,9 +128,13 @@ def main():
             if trigger:
                 alert_counter += 1
             else:
-                alert_counter = max(0, alert_counter - 1)
+                alert_counter = max(0, alert_counter - 0.5) # decay counter if no alert, but don't let it go negative
 
+            print(f"[DEBUG_1] Pose={pose_flag} | Emotion={emotion_flag} | Crowd={crowd_flag} | Persons={person_count}")
+            print(f"[DEBUG_2] Score={score} | Threshold={threshold} | Trigger={trigger} | Counter={alert_counter}")
+            
             if alert_counter >= ALERT_CONFIRM_FRAMES:
+                print("🚨 ALERT TRIGGERED!")
                 alert_system.trigger_alert(all_alerts, frame, confidence)
                 alert_counter = 0            
 
